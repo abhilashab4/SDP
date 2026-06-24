@@ -1,0 +1,9 @@
+--- Performance Report: XALAN ---
+              precision    recall  f1-score   support
+
+       Clean       0.78      0.42      0.55       464
+       Buggy       0.57      0.87      0.69       411
+
+    accuracy                           0.63       875
+   macro avg       0.67      0.64      0.62       875
+weighted avg       0.68      0.63      0.61       875

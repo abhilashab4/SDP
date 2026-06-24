@@ -1,0 +1,9 @@
+--- Performance Report: LUCENE ---
+              precision    recall  f1-score   support
+
+       Clean       0.68      0.23      0.34        91
+       Buggy       0.66      0.93      0.77       143
+
+    accuracy                           0.66       234
+   macro avg       0.67      0.58      0.56       234
+weighted avg       0.66      0.66      0.60       234

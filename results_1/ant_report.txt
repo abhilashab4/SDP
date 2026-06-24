@@ -1,0 +1,9 @@
+--- Performance Report: ANT ---
+              precision    recall  f1-score   support
+
+       Clean       0.90      0.74      0.81       576
+       Buggy       0.44      0.70      0.54       166
+
+    accuracy                           0.74       742
+   macro avg       0.67      0.72      0.68       742
+weighted avg       0.80      0.74      0.75       742
