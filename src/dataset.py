@@ -1,23 +1,13 @@
-
 import torch
 import pandas as pd
+import numpy as np
 from torch.utils.data import Dataset
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tokenizers import Tokenizer
+from tokenizers.models import BPE
+from tokenizers.trainers import BpeTrainer
 
 class MultiModalDefectDataset(Dataset):
-    def __init__(self, df, feature_cols, label_col, text_cols, tokenizer=None, max_len=128, mean=None, std=None):
-        """
-        Args:
-            df (pd.DataFrame): The source dataframe.
-            feature_cols (list): List of column names for tabular metrics.
-            label_col (str): The name of the target/bug column.
-            text_cols (list): List of column names containing text/tokens to combine.
-            tokenizer (Tokenizer, optional): Pre-fitted Keras tokenizer.
-            max_len (int): Maximum sequence length for padding.
-            mean (pd.Series, optional): Training mean for normalization.
-            std (pd.Series, optional): Training std for normalization.
-        """
+    def __init__(self, df, feature_cols, label_col, text_cols, tokenizer=None, vocab_size=8000, max_len=128, mean=None, std=None):
         # 1. Process Tabular Metrics safely
         metrics = df[feature_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
         
@@ -29,25 +19,39 @@ class MultiModalDefectDataset(Dataset):
             self.std = std
             
         normalized = (metrics - self.mean) / self.std
-        self.X_metrics = torch.as_tensor(normalized.values, dtype=torch.float32)
         
-        # 2. Sequence processing (AST + Code Tokens)
-        combined_text = df[text_cols].astype(str).agg(" ".join, axis=1)
+        # Cross-Version Drift Protection: Clip outliers between [-5, 5] 
+        # Prevents extreme feature shifts in newer releases from blowing up VAE latent spaces
+        clipped_values = np.clip(normalized.values, -5.0, 5.0)
+        self.X_metrics = torch.as_tensor(clipped_values, dtype=torch.float32)
         
+        # 2. Sequence processing (AST + Code Tokens mixed)
+        combined_text = df[text_cols].astype(str).agg(" ".join, axis=1).tolist()
+        
+        # Train or configure the BPE Subword Tokenizer
         if tokenizer is None:
-            self.tokenizer = Tokenizer(num_words=5000, oov_token="<OOV>")
-            self.tokenizer.fit_on_texts(combined_text)
+            self.tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
+            # FIX: Dynamically pass vocab_size from config to prevent dead embedding parameters
+            trainer = BpeTrainer(special_tokens=["[UNK]", "[PAD]"], vocab_size=vocab_size)
+            self.tokenizer.train_from_iterator(combined_text, trainer)
         else:
             self.tokenizer = tokenizer 
             
-        seqs = self.tokenizer.texts_to_sequences(combined_text)
-        self.X_seq = torch.as_tensor(pad_sequences(seqs, maxlen=max_len), dtype=torch.long)
+        # Explicitly re-enable padding & truncation rules 
+        # Tokenizer references lose these state details when passed across validation/test splits
+        self.tokenizer.enable_padding(pad_id=1, pad_token="[PAD]", length=max_len)
+        self.tokenizer.enable_truncation(max_length=max_len)
+            
+        # Encode sequences cleanly to uniform subwords matrix
+        encodings = self.tokenizer.encode_batch(combined_text)
+        self.X_seq = torch.as_tensor([e.ids for e in encodings], dtype=torch.long)
         
-        # 3. Binary Label
-        self.y = torch.as_tensor((df[label_col] > 0).astype(int).values, dtype=torch.float32)
+        # 3. Binary Label Matrix Setup
+        # FIX: Force labels to long integers (int64) to ensure exact matrix matching 
+        # inside your Supervised Contrastive Loss calculations.
+        self.y = torch.as_tensor((df[label_col] > 0).astype(int).values, dtype=torch.long)
 
     def get_pos_weight(self):
-        """Helper to get pos_weight specifically for the training split"""
         num_clean = (self.y == 0).sum().item()
         num_bug = (self.y == 1).sum().item()
         return torch.tensor([num_clean / max(num_bug, 1)], dtype=torch.float32)
@@ -57,3 +61,4 @@ class MultiModalDefectDataset(Dataset):
         
     def __getitem__(self, idx): 
         return self.X_metrics[idx], self.X_seq[idx], self.y[idx]
+    

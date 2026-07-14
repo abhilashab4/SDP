@@ -1,9 +1,0 @@
---- Performance Report: CAMEL ---
-              precision    recall  f1-score   support
-
-       Clean       0.88      0.81      0.84       750
-       Buggy       0.41      0.54      0.47       188
-
-    accuracy                           0.75       938
-   macro avg       0.65      0.68      0.66       938
-weighted avg       0.78      0.75      0.77       938
